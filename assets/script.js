@@ -922,191 +922,96 @@ function loadVturbSDK() {
   var container = document.getElementById('vturb-video-container');
   if (!container) return;
   
-  // Inject the complete Vturb embed code
   container.innerHTML = `
     <div id="ifr_692e4d6a3dbab420e9909b10_wrapper" style="margin: 0 auto; width: 100%; max-width: 400px;">
       <div style="position: relative; padding: 152.59259259259258% 0 0 0;" id="ifr_692e4d6a3dbab420e9909b10_aspect">
-        <iframe frameborder="0" allowfullscreen src="about:blank" id="ifr_692e4d6a3dbab420e9909b10" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" referrerpolicy="origin"></iframe>
+        <iframe frameborder="0" allowfullscreen src="https://scripts.converteai.net/8a115e75-6120-44f3-a213-a7424af5f137/players/692e4d6a3dbab420e9909b10/v4/embed.html${location.search || '?'}&vl=${encodeURIComponent(location.href)}" id="ifr_692e4d6a3dbab420e9909b10" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" referrerpolicy="origin"></iframe>
       </div>
     </div>
   `;
   
-  // Load the SDK script
   if (!document.querySelector('script[src*="converteai.net/lib/js/smartplayer"]')) {
     var s = document.createElement("script");
     s.src = "https://scripts.converteai.net/lib/js/smartplayer-wc/v4/sdk.js";
-    s.async = true;
+    s.async = false;
+    s.onload = function() {
+      console.log('[Video Tracker] SDK loaded, setting up delay script...');
+      setupDelayScript();
+    };
     document.head.appendChild(s);
+  } else {
+    setupDelayScript();
   }
-  
-  // Set up postMessage listener BEFORE loading iframe
-  setupVturbPostMessageListener();
-  
-  // Load the video iframe after a small delay
-  setTimeout(function() {
-    var iframe = document.getElementById('ifr_692e4d6a3dbab420e9909b10');
-    if (iframe && iframe.src === 'about:blank') {
-      iframe.src = 'https://scripts.converteai.net/8a115e75-6120-44f3-a213-a7424af5f137/players/692e4d6a3dbab420e9909b10/v4/embed.html' + (location.search || '?') + '&vl=' + encodeURIComponent(location.href);
-    }
-  }, 100);
 }
 
-function setupVturbPostMessageListener() {
-  if (vturbBinded) return;
-  vturbBinded = true;
+function setupDelayScript() {
+  console.log('[Video Tracker] Setting up official delay script...');
   
-  console.log('[Video Tracker] Iniciando detecção do player vturb...');
-  
-  var playerBound = false;
-  var lastPlayTime = 0;
-  
-  function showCTAIfReady() {
-    if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-      console.log('[Video Tracker] THRESHOLD REACHED at', accumulatedSeconds.toFixed(1), 's - Showing button!');
-      showCTAButton = true;
-      var ctaContainer = document.getElementById('ctaButtonContainer');
-      if (ctaContainer) {
-        ctaContainer.classList.remove('hidden');
-        console.log('[Video Tracker] Button is now visible!');
-      }
+  function showButton() {
+    console.log('[Video Tracker] SHOWING BUTTON NOW!');
+    showCTAButton = true;
+    var ctaContainer = document.getElementById('ctaButtonContainer');
+    if (ctaContainer) {
+      ctaContainer.classList.remove('hidden');
+      console.log('[Video Tracker] Button is now visible!');
     }
   }
   
-  function tryBindOldPlayer() {
-    if (typeof smartplayer !== 'undefined' && smartplayer.instances && smartplayer.instances.length > 0) {
-      var player = smartplayer.instances[0];
-      console.log('[Video Tracker] OLD PLAYER detected! Binding events...');
-      
-      player.on('play', function() {
-        isPlaying = true;
-        lastPlayTime = Date.now();
-        console.log('[Video Tracker] PLAY - accumulated:', accumulatedSeconds.toFixed(1), 's');
-      });
-      
-      player.on('pause', function() {
-        isPlaying = false;
-        console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
-      });
-      
-      player.on('timeupdate', function() {
-        if (player.video && player.video.currentTime > 0) {
-          var currentTime = player.video.currentTime;
-          if (currentTime >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-            accumulatedSeconds = currentTime;
-            showCTAIfReady();
-          }
-        }
-      });
-      
-      playerBound = true;
-      console.log('[Video Tracker] OLD PLAYER events bound successfully!');
-      return true;
-    }
-    return false;
-  }
-  
-  function tryBindNewPlayer() {
+  function waitForPlayerAndBind() {
     var player = document.querySelector('vturb-smartplayer');
+    
     if (player) {
-      console.log('[Video Tracker] NEW PLAYER element found!');
+      console.log('[Video Tracker] vturb-smartplayer found! Binding displayHiddenElements...');
       
       if (typeof player.displayHiddenElements === 'function') {
-        console.log('[Video Tracker] Using native displayHiddenElements method');
+        console.log('[Video Tracker] displayHiddenElements available immediately');
         player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
-        playerBound = true;
-        return true;
+        return;
       }
       
-      player.addEventListener('player:ready', function(event) {
-        console.log('[Video Tracker] player:ready event received');
+      player.addEventListener('player:ready', function() {
+        console.log('[Video Tracker] player:ready event fired');
         if (typeof player.displayHiddenElements === 'function') {
-          console.log('[Video Tracker] Using displayHiddenElements after ready');
+          console.log('[Video Tracker] Calling displayHiddenElements');
           player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
-          playerBound = true;
+        } else {
+          console.log('[Video Tracker] displayHiddenElements not available, using manual tracking');
+          startManualTracking(player);
         }
       });
-      
-      return true;
+      return;
     }
-    return false;
+    
+    console.log('[Video Tracker] Waiting for vturb-smartplayer element...');
+    setTimeout(waitForPlayerAndBind, 300);
   }
   
-  function setupPostMessageFallback() {
-    console.log('[Video Tracker] Setting up postMessage fallback...');
+  function startManualTracking(player) {
+    console.log('[Video Tracker] Starting manual time tracking...');
     
-    window.addEventListener('message', function(event) {
-      if (event.data && typeof event.data === 'object') {
-        var data = event.data;
-        
-        if (data.event === 'play' || data.type === 'play' || data.action === 'play') {
-          isPlaying = true;
-          lastPlayTime = Date.now();
-          console.log('[Video Tracker] postMessage PLAY detected');
-        }
-        
-        if (data.event === 'pause' || data.type === 'pause' || data.action === 'pause') {
-          isPlaying = false;
-          console.log('[Video Tracker] postMessage PAUSE detected');
-        }
-        
-        if (data.currentTime !== undefined && data.currentTime >= CTA_THRESHOLD_SECONDS) {
-          accumulatedSeconds = data.currentTime;
-          showCTAIfReady();
-        }
-      }
-      
-      if (typeof event.data === 'string') {
-        try {
-          var parsed = JSON.parse(event.data);
-          if (parsed.event === 'play' || parsed.type === 'play') {
-            isPlaying = true;
-            lastPlayTime = Date.now();
-            console.log('[Video Tracker] postMessage (string) PLAY detected');
-          }
-          if (parsed.event === 'pause' || parsed.type === 'pause') {
-            isPlaying = false;
-            console.log('[Video Tracker] postMessage (string) PAUSE detected');
-          }
-        } catch(e) {}
-      }
+    player.addEventListener('video:play', function() {
+      isPlaying = true;
+      console.log('[Video Tracker] PLAY detected');
     });
-  }
-  
-  function pollForPlayer() {
-    if (tryBindOldPlayer()) {
-      console.log('[Video Tracker] Old player bound, starting time tracker');
-      startTimeTracker();
-      return;
-    }
     
-    if (tryBindNewPlayer()) {
-      console.log('[Video Tracker] New player detected');
-      startTimeTracker();
-      return;
-    }
+    player.addEventListener('video:pause', function() {
+      isPlaying = false;
+      console.log('[Video Tracker] PAUSE detected');
+    });
     
-    console.log('[Video Tracker] Player not ready yet, retrying in 500ms...');
-    setTimeout(pollForPlayer, 500);
-  }
-  
-  function startTimeTracker() {
     setInterval(function() {
       if (isPlaying) {
         accumulatedSeconds += 0.5;
-        
-        if (Math.floor(accumulatedSeconds) % 2 === 0) {
-          console.log('[Video Tracker] Playing... accumulated:', accumulatedSeconds.toFixed(1), 's / ' + CTA_THRESHOLD_SECONDS + 's');
+        if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+          showButton();
         }
-        
-        showCTAIfReady();
       }
     }, 500);
   }
   
-  setupPostMessageFallback();
-  
-  setTimeout(pollForPlayer, 1000);
+  waitForPlayerAndBind();
 }
+
 
 // UTM/XCOD tracking
 function setupUTMTracking() {
