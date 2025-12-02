@@ -47,7 +47,7 @@ const server = http.createServer((req, res) => {
         res.end('Server Error');
       }
     } else {
-      const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable';
+      const cacheControl = (ext === '.html' || ext === '.js' || ext === '.css') ? 'no-cache, no-store, must-revalidate' : 'public, max-age=31536000, immutable';
       res.writeHead(200, { 
         'Content-Type': contentType,
         'Cache-Control': cacheControl
