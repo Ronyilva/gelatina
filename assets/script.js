@@ -15,7 +15,7 @@ let isPlaying = false;
 let lastTimestamp = 0;
 let accumulatedSeconds = 0;
 let vturbBinded = false;
-const CTA_THRESHOLD_SECONDS = 490;
+const CTA_THRESHOLD_SECONDS = 5;
 
 // Preload tracking
 let vturbPreloaded = false;
