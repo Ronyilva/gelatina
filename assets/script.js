@@ -980,7 +980,6 @@ function setupVideoTracker() {
     var data = event.data;
     
     if (typeof data === 'string') {
-      console.log('[Video Tracker] postMessage (string):', data.substring(0, 300));
       try {
         data = JSON.parse(data);
       } catch(e) {
@@ -990,41 +989,31 @@ function setupVideoTracker() {
     
     if (!data || typeof data !== 'object') return;
     
-    console.log('[Video Tracker] EVENT:', JSON.stringify(data).substring(0, 400));
+    var eventType = (data.type || '').toLowerCase();
+    var payload = data.payload;
     
-    var eventName = (data.event || data.type || data.action || data.name || data.method || '').toLowerCase();
-    var dataStr = JSON.stringify(data).toLowerCase();
-    
-    if (eventName.includes('unmute') || eventName.includes('click') || eventName.includes('interaction') ||
-        eventName.includes('start') || eventName.includes('resume') ||
-        dataStr.includes('"unmute"') || dataStr.includes('"click"') || dataStr.includes('userinteraction') ||
-        dataStr.includes('"muted":false') || dataStr.includes('"sound":true')) {
-      console.log('[Video Tracker] USER INTERACTION detected!', eventName);
+    if (eventType === 'smartautoplayinactive') {
+      console.log('[Video Tracker] USER CLICKED! smartautoplayInactive detected');
       onUserClickedPlay();
     }
     
-    if (!userClickedPlay && eventName.includes('play') && !eventName.includes('autoplay')) {
-      var hasAutoplayIndicator = dataStr.includes('autoplay') || dataStr.includes('smart') || dataStr.includes('muted":true');
-      if (!hasAutoplayIndicator) {
-        console.log('[Video Tracker] Regular PLAY detected - assuming user clicked');
-        onUserClickedPlay();
-      } else {
-        console.log('[Video Tracker] Autoplay detected (ignoring until user clicks)');
-      }
+    if (eventType === 'smartplay' && payload === false) {
+      console.log('[Video Tracker] USER CLICKED! smartplay:false detected');
+      onUserClickedPlay();
     }
     
     if (userClickedPlay) {
-      if (eventName.includes('play') && !eventName.includes('pause')) {
+      if (eventType === 'videoplay') {
         isPlaying = true;
-        console.log('[Video Tracker] PLAY - counting time');
+        console.log('[Video Tracker] VIDEO PLAY - counting time');
       }
       
-      if (eventName.includes('pause') || eventName.includes('stop')) {
+      if (eventType === 'videopause') {
         isPlaying = false;
-        console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
+        console.log('[Video Tracker] VIDEO PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
       }
       
-      if (eventName.includes('ended') || eventName.includes('finish') || eventName.includes('complete')) {
+      if (eventType === 'videoended' || eventType === 'ended') {
         isPlaying = false;
         console.log('[Video Tracker] VIDEO ENDED');
       }
