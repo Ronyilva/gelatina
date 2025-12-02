@@ -713,12 +713,7 @@ function renderVideoPage() {
       </h2>
 
       <div class="video-container">
-        <div class="video-wrapper">
-          <div id="ifr_692e4d6a3dbab420e9909b10_wrapper" style="margin: 0 auto; width: 100%; max-width: 400px;">
-            <div style="position: relative; padding: 152.59259259259258% 0 0 0;" id="ifr_692e4d6a3dbab420e9909b10_aspect">
-              <iframe frameborder="0" allowfullscreen src="about:blank" id="ifr_692e4d6a3dbab420e9909b10" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" referrerpolicy="origin"></iframe>
-            </div>
-          </div>
+        <div class="video-wrapper" id="vturb-video-container">
         </div>
       </div>
 
@@ -924,160 +919,89 @@ function render() {
 }
 
 function loadVturbSDK() {
+  var container = document.getElementById('vturb-video-container');
+  if (!container) return;
+  
+  // Inject the complete Vturb embed code
+  container.innerHTML = `
+    <div id="ifr_692e4d6a3dbab420e9909b10_wrapper" style="margin: 0 auto; width: 100%; max-width: 400px;">
+      <div style="position: relative; padding: 152.59259259259258% 0 0 0;" id="ifr_692e4d6a3dbab420e9909b10_aspect">
+        <iframe frameborder="0" allowfullscreen src="about:blank" id="ifr_692e4d6a3dbab420e9909b10" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" referrerpolicy="origin"></iframe>
+      </div>
+    </div>
+  `;
+  
+  // Load the SDK script
   if (!document.querySelector('script[src*="converteai.net/lib/js/smartplayer"]')) {
-    const playerScript = document.createElement('script');
-    playerScript.src = 'https://scripts.converteai.net/lib/js/smartplayer-wc/v4/sdk.js';
-    playerScript.async = true;
-    document.head.appendChild(playerScript);
+    var s = document.createElement("script");
+    s.src = "https://scripts.converteai.net/lib/js/smartplayer-wc/v4/sdk.js";
+    s.async = true;
+    document.head.appendChild(s);
   }
   
-  // Load the video iframe
-  const iframe = document.getElementById('ifr_692e4d6a3dbab420e9909b10');
-  if (iframe && iframe.src === 'about:blank') {
-    iframe.src = 'https://scripts.converteai.net/8a115e75-6120-44f3-a213-a7424af5f137/players/692e4d6a3dbab420e9909b10/v4/embed.html' + (location.search || '?') + '&vl=' + encodeURIComponent(location.href);
-  }
+  // Load the video iframe after a small delay to ensure SDK is loading
+  setTimeout(function() {
+    var iframe = document.getElementById('ifr_692e4d6a3dbab420e9909b10');
+    if (iframe && iframe.src === 'about:blank') {
+      iframe.src = 'https://scripts.converteai.net/8a115e75-6120-44f3-a213-a7424af5f137/players/692e4d6a3dbab420e9909b10/v4/embed.html' + (location.search || '?') + '&vl=' + encodeURIComponent(location.href);
+    }
+  }, 100);
   
-  // Set up video tracking using postMessage from iframe
-  setupVideoTrackingPostMessage();
+  // Set up video tracking using Vturb's recommended pattern
+  startWatchVideoProgress();
 }
 
-function setupVideoTrackingPostMessage() {
+function startWatchVideoProgress() {
   if (vturbBinded) return;
+  
+  // Check if smartplayer is available (Vturb's pattern)
+  if (typeof smartplayer === 'undefined' || !(smartplayer.instances && smartplayer.instances.length)) {
+    console.log('[Video Tracker] Waiting for smartplayer...');
+    setTimeout(startWatchVideoProgress, 1000);
+    return;
+  }
+  
   vturbBinded = true;
+  console.log('[Video Tracker] smartplayer found - binding events');
   
-  console.log('[Video Tracker] Setting up postMessage listener for Vturb iframe');
+  var player = smartplayer.instances[0];
   
-  // Listen for messages from the Vturb iframe
-  window.addEventListener('message', function(event) {
-    // Accept messages from converteai.net domain
-    if (!event.origin.includes('converteai.net') && !event.origin.includes('vturb.com')) {
-      return;
+  // Bind timeupdate event (Vturb's official method)
+  player.on('timeupdate', function() {
+    // Skip if in smart autoplay mode
+    if (player.smartAutoPlay) return;
+    
+    var currentTime = player.video.currentTime;
+    
+    if (currentTime > lastTimestamp) {
+      var delta = currentTime - lastTimestamp;
+      if (delta > 0 && delta < 2) {
+        accumulatedSeconds += delta;
+      }
     }
     
-    try {
-      let data = event.data;
-      
-      // Parse if string
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (e) {
-          return;
-        }
+    lastTimestamp = currentTime;
+    
+    // Check if threshold reached
+    if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+      console.log('[Video Tracker] THRESHOLD REACHED! Showing CTA button at', accumulatedSeconds.toFixed(1), 's');
+      showCTAButton = true;
+      var ctaContainer = document.getElementById('ctaButtonContainer');
+      if (ctaContainer) {
+        ctaContainer.classList.remove('hidden');
       }
-      
-      // Handle different event types from Vturb
-      if (data.event === 'play' || data.type === 'play' || data.name === 'play') {
-        isPlaying = true;
-        console.log('[Video Tracker] PLAY - now tracking time. Accumulated so far:', accumulatedSeconds.toFixed(1), 's');
-      }
-      
-      if (data.event === 'pause' || data.type === 'pause' || data.name === 'pause') {
-        isPlaying = false;
-        console.log('[Video Tracker] PAUSE - stopped tracking. Total watched:', accumulatedSeconds.toFixed(1), 's');
-      }
-      
-      if (data.event === 'ended' || data.type === 'ended' || data.name === 'ended') {
-        isPlaying = false;
-        console.log('[Video Tracker] ENDED - Total watched:', accumulatedSeconds.toFixed(1), 's');
-      }
-      
-      // Handle time updates
-      const currentTime = data.currentTime || data.time || data.seconds || 0;
-      if (currentTime > 0) {
-        if (isPlaying && currentTime > lastTimestamp) {
-          const delta = currentTime - lastTimestamp;
-          if (delta > 0 && delta < 2) {
-            accumulatedSeconds += delta;
-          }
-        }
-        lastTimestamp = currentTime;
-        
-        if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-          console.log('[Video Tracker] THRESHOLD REACHED! Watched', accumulatedSeconds.toFixed(1), 's - SHOWING CTA BUTTON');
-          showCTAButton = true;
-          const ctaContainer = document.getElementById('ctaButtonContainer');
-          if (ctaContainer) {
-            ctaContainer.classList.remove('hidden');
-          }
-        }
-      }
-    } catch (e) {
-      // Ignore parse errors
     }
   });
   
-  // Also try document-level events that the SDK might emit
-  document.addEventListener('player:ready', function(event) {
-    console.log('[Video Tracker] player:ready event received');
-    setupVturbPlayerEvents();
+  player.on('play', function() {
+    console.log('[Video Tracker] PLAY');
   });
   
-  // Fallback: try to find vturb-smartplayer element
-  setTimeout(setupVturbPlayerEvents, 2000);
+  player.on('pause', function() {
+    console.log('[Video Tracker] PAUSE - watched:', accumulatedSeconds.toFixed(1), 's');
+  });
   
-  console.log('[Video Tracker] PostMessage listener and fallbacks set up');
-}
-
-function setupVturbPlayerEvents() {
-  const player = document.querySelector('vturb-smartplayer');
-  if (player) {
-    console.log('[Video Tracker] Found vturb-smartplayer element');
-    
-    player.addEventListener('video:play', () => {
-      isPlaying = true;
-      console.log('[Video Tracker] PLAY event from vturb-smartplayer');
-    });
-    
-    player.addEventListener('video:pause', () => {
-      isPlaying = false;
-      console.log('[Video Tracker] PAUSE event from vturb-smartplayer');
-    });
-    
-    // Try displayHiddenElements if available
-    if (typeof player.displayHiddenElements === 'function') {
-      player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
-      console.log('[Video Tracker] Using native displayHiddenElements');
-    }
-  }
-  
-  // Check for smartplayer global
-  if (typeof smartplayer !== 'undefined' && smartplayer.instances && smartplayer.instances.length) {
-    const instance = smartplayer.instances[0];
-    console.log('[Video Tracker] Found smartplayer instance');
-    
-    instance.on('play', () => {
-      isPlaying = true;
-      console.log('[Video Tracker] PLAY from smartplayer instance');
-    });
-    
-    instance.on('pause', () => {
-      isPlaying = false;
-      console.log('[Video Tracker] PAUSE from smartplayer instance');
-    });
-    
-    instance.on('timeupdate', () => {
-      const currentTime = instance.video?.currentTime ?? 0;
-      
-      if (isPlaying && currentTime > lastTimestamp) {
-        const delta = currentTime - lastTimestamp;
-        if (delta > 0 && delta < 2) {
-          accumulatedSeconds += delta;
-        }
-      }
-      
-      lastTimestamp = currentTime;
-      
-      if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-        console.log('[Video Tracker] THRESHOLD REACHED!');
-        showCTAButton = true;
-        const ctaContainer = document.getElementById('ctaButtonContainer');
-        if (ctaContainer) {
-          ctaContainer.classList.remove('hidden');
-        }
-      }
-    });
-  }
+  console.log('[Video Tracker] Events bound successfully');
 }
 
 // UTM/XCOD tracking
