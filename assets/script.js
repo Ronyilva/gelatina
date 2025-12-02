@@ -147,7 +147,7 @@ function preconnectCheckout() {
   // Prefetch da página de checkout
   const checkoutPrefetch = document.createElement('link');
   checkoutPrefetch.rel = 'prefetch';
-  checkoutPrefetch.href = 'https://pay.hotmart.com/I103092154N?off=8pqi3d4c&checkoutMode=10';
+  checkoutPrefetch.href = 'https://pay.hotmart.com/E103227991B?off=skdtaixu&checkoutMode=10';
   document.head.appendChild(checkoutPrefetch);
   
   console.log('[Preload] Checkout preconnected and prefetched at step', step);
@@ -724,7 +724,7 @@ function renderVideoPage() {
 
       <div id="ctaButtonContainer" class="${showCTAButton ? '' : 'hidden'}" style="margin-top: 1rem;">
         <a
-          href="https://pay.hotmart.com/I103092154N?off=8pqi3d4c&checkoutMode=10"
+          href="https://pay.hotmart.com/E103227991B?off=skdtaixu&checkoutMode=10"
           onclick="handleCTAClick()"
           class="cta-link animate-pulse-cta-strong"
         >
