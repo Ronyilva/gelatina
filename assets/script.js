@@ -930,86 +930,106 @@ function loadVturbSDK() {
     </div>
   `;
   
-  if (!document.querySelector('script[src*="converteai.net/lib/js/smartplayer"]')) {
-    var s = document.createElement("script");
-    s.src = "https://scripts.converteai.net/lib/js/smartplayer-wc/v4/sdk.js";
-    s.async = false;
-    s.onload = function() {
-      console.log('[Video Tracker] SDK loaded, setting up delay script...');
-      setupDelayScript();
-    };
-    document.head.appendChild(s);
-  } else {
-    setupDelayScript();
-  }
+  setupVideoTracker();
 }
 
-function setupDelayScript() {
-  console.log('[Video Tracker] Setting up official delay script...');
+function setupVideoTracker() {
+  console.log('[Video Tracker] Iniciando rastreamento via postMessage...');
+  
+  var timeTrackerStarted = false;
   
   function showButton() {
-    console.log('[Video Tracker] SHOWING BUTTON NOW!');
+    if (showCTAButton) return;
+    console.log('[Video Tracker] THRESHOLD REACHED! Showing button at', accumulatedSeconds.toFixed(1), 's');
     showCTAButton = true;
     var ctaContainer = document.getElementById('ctaButtonContainer');
     if (ctaContainer) {
       ctaContainer.classList.remove('hidden');
-      console.log('[Video Tracker] Button is now visible!');
+      console.log('[Video Tracker] Button is now VISIBLE!');
     }
   }
   
-  function waitForPlayerAndBind() {
-    var player = document.querySelector('vturb-smartplayer');
-    
-    if (player) {
-      console.log('[Video Tracker] vturb-smartplayer found! Binding displayHiddenElements...');
-      
-      if (typeof player.displayHiddenElements === 'function') {
-        console.log('[Video Tracker] displayHiddenElements available immediately');
-        player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
-        return;
-      }
-      
-      player.addEventListener('player:ready', function() {
-        console.log('[Video Tracker] player:ready event fired');
-        if (typeof player.displayHiddenElements === 'function') {
-          console.log('[Video Tracker] Calling displayHiddenElements');
-          player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
-        } else {
-          console.log('[Video Tracker] displayHiddenElements not available, using manual tracking');
-          startManualTracking(player);
-        }
-      });
-      return;
-    }
-    
-    console.log('[Video Tracker] Waiting for vturb-smartplayer element...');
-    setTimeout(waitForPlayerAndBind, 300);
-  }
-  
-  function startManualTracking(player) {
-    console.log('[Video Tracker] Starting manual time tracking...');
-    
-    player.addEventListener('video:play', function() {
-      isPlaying = true;
-      console.log('[Video Tracker] PLAY detected');
-    });
-    
-    player.addEventListener('video:pause', function() {
-      isPlaying = false;
-      console.log('[Video Tracker] PAUSE detected');
-    });
+  function startTimeTracker() {
+    if (timeTrackerStarted) return;
+    timeTrackerStarted = true;
+    console.log('[Video Tracker] Time tracker started');
     
     setInterval(function() {
       if (isPlaying) {
         accumulatedSeconds += 0.5;
-        if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+        console.log('[Video Tracker] Playing...', accumulatedSeconds.toFixed(1), 's /', CTA_THRESHOLD_SECONDS, 's');
+        
+        if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS) {
           showButton();
         }
       }
     }, 500);
   }
   
-  waitForPlayerAndBind();
+  window.addEventListener('message', function(event) {
+    var data = event.data;
+    
+    if (typeof data === 'string') {
+      if (data.includes('smartplayer') || data.includes('play') || data.includes('pause') || data.includes('vturb')) {
+        console.log('[Video Tracker] postMessage (string):', data.substring(0, 200));
+      }
+      try {
+        data = JSON.parse(data);
+      } catch(e) {
+        return;
+      }
+    }
+    
+    if (!data || typeof data !== 'object') return;
+    
+    console.log('[Video Tracker] postMessage received:', JSON.stringify(data).substring(0, 300));
+    
+    var eventName = (data.event || data.type || data.action || data.name || data.method || '').toLowerCase();
+    var dataStr = JSON.stringify(data).toLowerCase();
+    
+    if (eventName.includes('play') && !eventName.includes('pause') && !eventName.includes('player')) {
+      isPlaying = true;
+      console.log('[Video Tracker] PLAY detected!');
+      startTimeTracker();
+    }
+    
+    if (dataStr.includes('"play"') && !dataStr.includes('pause') && !isPlaying) {
+      isPlaying = true;
+      console.log('[Video Tracker] PLAY detected from data!');
+      startTimeTracker();
+    }
+    
+    if (eventName.includes('pause') || eventName.includes('stop')) {
+      isPlaying = false;
+      console.log('[Video Tracker] PAUSE detected - accumulated:', accumulatedSeconds.toFixed(1), 's');
+    }
+    
+    if (dataStr.includes('"pause"') && isPlaying) {
+      isPlaying = false;
+      console.log('[Video Tracker] PAUSE detected from data - accumulated:', accumulatedSeconds.toFixed(1), 's');
+    }
+    
+    if (eventName.includes('ended') || eventName.includes('finish') || eventName.includes('complete')) {
+      isPlaying = false;
+      console.log('[Video Tracker] VIDEO ENDED');
+    }
+    
+    if (data.currentTime !== undefined && typeof data.currentTime === 'number') {
+      if (data.currentTime >= CTA_THRESHOLD_SECONDS) {
+        accumulatedSeconds = data.currentTime;
+        showButton();
+      }
+    }
+    
+    if (data.time !== undefined && typeof data.time === 'number') {
+      if (data.time >= CTA_THRESHOLD_SECONDS) {
+        accumulatedSeconds = data.time;
+        showButton();
+      }
+    }
+  });
+  
+  console.log('[Video Tracker] postMessage listener ready, waiting for video events...');
 }
 
 
