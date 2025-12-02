@@ -955,106 +955,77 @@ function setupVturbPostMessageListener() {
   if (vturbBinded) return;
   vturbBinded = true;
   
-  console.log('[Video Tracker] Setting up postMessage listener for Vturb');
+  console.log('[Video Tracker] Setting up vturb-smartplayer listener');
   
-  // Listen for ALL postMessage events to discover what Vturb sends
-  window.addEventListener('message', function(event) {
-    // Log all messages for debugging
-    if (event.data && typeof event.data === 'object') {
-      console.log('[Video Tracker] postMessage received:', JSON.stringify(event.data));
-    } else if (typeof event.data === 'string' && event.data.length < 500) {
-      console.log('[Video Tracker] postMessage string:', event.data);
+  // Wait for the vturb-smartplayer element to be created by the SDK
+  function waitForPlayer() {
+    var player = document.querySelector('vturb-smartplayer');
+    
+    if (!player) {
+      console.log('[Video Tracker] Waiting for vturb-smartplayer element...');
+      setTimeout(waitForPlayer, 500);
+      return;
     }
     
-    try {
-      var data = event.data;
-      
-      // Try to parse if string
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch(e) {
-          // Check for specific string patterns
-          if (data.includes('play')) {
-            isPlaying = true;
-            console.log('[Video Tracker] PLAY detected from string');
-          }
-          if (data.includes('pause')) {
-            isPlaying = false;
-            console.log('[Video Tracker] PAUSE detected from string');
-          }
-          return;
-        }
-      }
-      
-      if (!data || typeof data !== 'object') return;
-      
-      // Try multiple possible event formats
-      var eventType = data.event || data.type || data.name || data.action || data.method || '';
-      var currentTime = data.currentTime || data.time || data.seconds || data.position || data.progress || 0;
-      
-      // Detect play
-      if (eventType === 'play' || eventType === 'playing' || data.playing === true || data.isPlaying === true) {
-        isPlaying = true;
-        console.log('[Video Tracker] PLAY - accumulated:', accumulatedSeconds.toFixed(1), 's');
-      }
-      
-      // Detect pause
-      if (eventType === 'pause' || eventType === 'paused' || data.playing === false || data.paused === true) {
-        isPlaying = false;
-        console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
-      }
-      
-      // Detect end
-      if (eventType === 'ended' || eventType === 'end' || eventType === 'complete' || data.ended === true) {
-        isPlaying = false;
-        console.log('[Video Tracker] ENDED');
-      }
-      
-      // Track time from any time-related field
-      if (currentTime > 0 || data.currentTime > 0 || data.playedSeconds > 0) {
-        var time = currentTime || data.currentTime || data.playedSeconds || 0;
-        
-        if (time > lastTimestamp) {
-          var delta = time - lastTimestamp;
-          if (delta > 0 && delta < 3) {
-            accumulatedSeconds += delta;
-          }
-        }
-        lastTimestamp = time;
-        
-        // Check threshold
-        if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-          console.log('[Video Tracker] THRESHOLD REACHED at', accumulatedSeconds.toFixed(1), 's');
-          showCTAButton = true;
-          var ctaContainer = document.getElementById('ctaButtonContainer');
-          if (ctaContainer) {
-            ctaContainer.classList.remove('hidden');
-          }
-        }
-      }
-      
-      // Also check for smartplayer-specific format
-      if (data.smartplayer || data.player) {
-        var playerData = data.smartplayer || data.player;
-        if (playerData.currentTime) {
-          var time = playerData.currentTime;
-          if (time > lastTimestamp) {
-            var delta = time - lastTimestamp;
-            if (delta > 0 && delta < 3) {
-              accumulatedSeconds += delta;
-            }
-          }
-          lastTimestamp = time;
-        }
-      }
-      
-    } catch(e) {
-      // Ignore errors
-    }
-  });
+    console.log('[Video Tracker] vturb-smartplayer element found!');
+    
+    // Listen for player:ready event
+    player.addEventListener('player:ready', function(event) {
+      console.log('[Video Tracker] player:ready event received');
+      bindPlayerEvents(player);
+    });
+    
+    // Also try to bind events directly in case player is already ready
+    setTimeout(function() {
+      bindPlayerEvents(player);
+    }, 1000);
+  }
   
-  console.log('[Video Tracker] postMessage listener ready');
+  function bindPlayerEvents(player) {
+    console.log('[Video Tracker] Binding events to vturb-smartplayer');
+    
+    // New player events (video:play, video:pause, etc)
+    player.addEventListener('video:play', function() {
+      isPlaying = true;
+      console.log('[Video Tracker] PLAY - accumulated:', accumulatedSeconds.toFixed(1), 's');
+    });
+    
+    player.addEventListener('video:pause', function() {
+      isPlaying = false;
+      console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
+    });
+    
+    player.addEventListener('video:ended', function() {
+      isPlaying = false;
+      console.log('[Video Tracker] ENDED');
+    });
+    
+    // Try to use displayHiddenElements if available
+    if (typeof player.displayHiddenElements === 'function') {
+      console.log('[Video Tracker] Using native displayHiddenElements');
+      player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
+    }
+    
+    // Fallback: poll for time updates using an interval
+    setInterval(function() {
+      if (!isPlaying) return;
+      
+      accumulatedSeconds += 0.5;
+      
+      if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+        console.log('[Video Tracker] THRESHOLD REACHED at', accumulatedSeconds.toFixed(1), 's');
+        showCTAButton = true;
+        var ctaContainer = document.getElementById('ctaButtonContainer');
+        if (ctaContainer) {
+          ctaContainer.classList.remove('hidden');
+        }
+      }
+    }, 500);
+    
+    console.log('[Video Tracker] Events bound successfully');
+  }
+  
+  waitForPlayer();
 }
 
 // UTM/XCOD tracking
