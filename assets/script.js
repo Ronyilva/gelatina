@@ -15,7 +15,7 @@ let isPlaying = false;
 let lastTimestamp = 0;
 let accumulatedSeconds = 0;
 let vturbBinded = false;
-const CTA_THRESHOLD_SECONDS = 490;
+const CTA_THRESHOLD_SECONDS = 5;
 
 // Preload tracking
 let vturbPreloaded = false;
@@ -955,77 +955,157 @@ function setupVturbPostMessageListener() {
   if (vturbBinded) return;
   vturbBinded = true;
   
-  console.log('[Video Tracker] Setting up vturb-smartplayer listener');
+  console.log('[Video Tracker] Iniciando detecção do player vturb...');
   
-  // Wait for the vturb-smartplayer element to be created by the SDK
-  function waitForPlayer() {
+  var playerBound = false;
+  var lastPlayTime = 0;
+  
+  function showCTAIfReady() {
+    if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+      console.log('[Video Tracker] THRESHOLD REACHED at', accumulatedSeconds.toFixed(1), 's - Showing button!');
+      showCTAButton = true;
+      var ctaContainer = document.getElementById('ctaButtonContainer');
+      if (ctaContainer) {
+        ctaContainer.classList.remove('hidden');
+        console.log('[Video Tracker] Button is now visible!');
+      }
+    }
+  }
+  
+  function tryBindOldPlayer() {
+    if (typeof smartplayer !== 'undefined' && smartplayer.instances && smartplayer.instances.length > 0) {
+      var player = smartplayer.instances[0];
+      console.log('[Video Tracker] OLD PLAYER detected! Binding events...');
+      
+      player.on('play', function() {
+        isPlaying = true;
+        lastPlayTime = Date.now();
+        console.log('[Video Tracker] PLAY - accumulated:', accumulatedSeconds.toFixed(1), 's');
+      });
+      
+      player.on('pause', function() {
+        isPlaying = false;
+        console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
+      });
+      
+      player.on('timeupdate', function() {
+        if (player.video && player.video.currentTime > 0) {
+          var currentTime = player.video.currentTime;
+          if (currentTime >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
+            accumulatedSeconds = currentTime;
+            showCTAIfReady();
+          }
+        }
+      });
+      
+      playerBound = true;
+      console.log('[Video Tracker] OLD PLAYER events bound successfully!');
+      return true;
+    }
+    return false;
+  }
+  
+  function tryBindNewPlayer() {
     var player = document.querySelector('vturb-smartplayer');
+    if (player) {
+      console.log('[Video Tracker] NEW PLAYER element found!');
+      
+      if (typeof player.displayHiddenElements === 'function') {
+        console.log('[Video Tracker] Using native displayHiddenElements method');
+        player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
+        playerBound = true;
+        return true;
+      }
+      
+      player.addEventListener('player:ready', function(event) {
+        console.log('[Video Tracker] player:ready event received');
+        if (typeof player.displayHiddenElements === 'function') {
+          console.log('[Video Tracker] Using displayHiddenElements after ready');
+          player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
+          playerBound = true;
+        }
+      });
+      
+      return true;
+    }
+    return false;
+  }
+  
+  function setupPostMessageFallback() {
+    console.log('[Video Tracker] Setting up postMessage fallback...');
     
-    if (!player) {
-      console.log('[Video Tracker] Waiting for vturb-smartplayer element...');
-      setTimeout(waitForPlayer, 500);
+    window.addEventListener('message', function(event) {
+      if (event.data && typeof event.data === 'object') {
+        var data = event.data;
+        
+        if (data.event === 'play' || data.type === 'play' || data.action === 'play') {
+          isPlaying = true;
+          lastPlayTime = Date.now();
+          console.log('[Video Tracker] postMessage PLAY detected');
+        }
+        
+        if (data.event === 'pause' || data.type === 'pause' || data.action === 'pause') {
+          isPlaying = false;
+          console.log('[Video Tracker] postMessage PAUSE detected');
+        }
+        
+        if (data.currentTime !== undefined && data.currentTime >= CTA_THRESHOLD_SECONDS) {
+          accumulatedSeconds = data.currentTime;
+          showCTAIfReady();
+        }
+      }
+      
+      if (typeof event.data === 'string') {
+        try {
+          var parsed = JSON.parse(event.data);
+          if (parsed.event === 'play' || parsed.type === 'play') {
+            isPlaying = true;
+            lastPlayTime = Date.now();
+            console.log('[Video Tracker] postMessage (string) PLAY detected');
+          }
+          if (parsed.event === 'pause' || parsed.type === 'pause') {
+            isPlaying = false;
+            console.log('[Video Tracker] postMessage (string) PAUSE detected');
+          }
+        } catch(e) {}
+      }
+    });
+  }
+  
+  function pollForPlayer() {
+    if (tryBindOldPlayer()) {
+      console.log('[Video Tracker] Old player bound, starting time tracker');
+      startTimeTracker();
       return;
     }
     
-    console.log('[Video Tracker] vturb-smartplayer element found!');
-    
-    // Listen for player:ready event
-    player.addEventListener('player:ready', function(event) {
-      console.log('[Video Tracker] player:ready event received');
-      bindPlayerEvents(player);
-    });
-    
-    // Also try to bind events directly in case player is already ready
-    setTimeout(function() {
-      bindPlayerEvents(player);
-    }, 1000);
-  }
-  
-  function bindPlayerEvents(player) {
-    console.log('[Video Tracker] Binding events to vturb-smartplayer');
-    
-    // New player events (video:play, video:pause, etc)
-    player.addEventListener('video:play', function() {
-      isPlaying = true;
-      console.log('[Video Tracker] PLAY - accumulated:', accumulatedSeconds.toFixed(1), 's');
-    });
-    
-    player.addEventListener('video:pause', function() {
-      isPlaying = false;
-      console.log('[Video Tracker] PAUSE - accumulated:', accumulatedSeconds.toFixed(1), 's');
-    });
-    
-    player.addEventListener('video:ended', function() {
-      isPlaying = false;
-      console.log('[Video Tracker] ENDED');
-    });
-    
-    // Try to use displayHiddenElements if available
-    if (typeof player.displayHiddenElements === 'function') {
-      console.log('[Video Tracker] Using native displayHiddenElements');
-      player.displayHiddenElements(CTA_THRESHOLD_SECONDS, ['#ctaButtonContainer'], { persist: true });
+    if (tryBindNewPlayer()) {
+      console.log('[Video Tracker] New player detected');
+      startTimeTracker();
+      return;
     }
     
-    // Fallback: poll for time updates using an interval
-    setInterval(function() {
-      if (!isPlaying) return;
-      
-      accumulatedSeconds += 0.5;
-      
-      if (accumulatedSeconds >= CTA_THRESHOLD_SECONDS && !showCTAButton) {
-        console.log('[Video Tracker] THRESHOLD REACHED at', accumulatedSeconds.toFixed(1), 's');
-        showCTAButton = true;
-        var ctaContainer = document.getElementById('ctaButtonContainer');
-        if (ctaContainer) {
-          ctaContainer.classList.remove('hidden');
-        }
-      }
-    }, 500);
-    
-    console.log('[Video Tracker] Events bound successfully');
+    console.log('[Video Tracker] Player not ready yet, retrying in 500ms...');
+    setTimeout(pollForPlayer, 500);
   }
   
-  waitForPlayer();
+  function startTimeTracker() {
+    setInterval(function() {
+      if (isPlaying) {
+        accumulatedSeconds += 0.5;
+        
+        if (Math.floor(accumulatedSeconds) % 2 === 0) {
+          console.log('[Video Tracker] Playing... accumulated:', accumulatedSeconds.toFixed(1), 's / ' + CTA_THRESHOLD_SECONDS + 's');
+        }
+        
+        showCTAIfReady();
+      }
+    }, 500);
+  }
+  
+  setupPostMessageFallback();
+  
+  setTimeout(pollForPlayer, 1000);
 }
 
 // UTM/XCOD tracking
